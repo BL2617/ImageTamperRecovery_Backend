@@ -2,7 +2,7 @@
 数据模型定义
 包含数据库模型和API响应模型
 """
-from sqlalchemy import Column, String, Integer, BigInteger, DateTime, Text
+from sqlalchemy import Column, String, Integer, BigInteger, DateTime, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from pydantic import BaseModel
@@ -13,17 +13,26 @@ Base = declarative_base()
 
 
 class Image(Base):
-    """图片数据库模型"""
+    """图片数据库模型
+    
+    设计说明：
+    - file_path: 存储带水印的图片路径（用于分发）
+    - 不存储原图备份（备份在客户端本地）
+    - watermark_key_hash: 存储密钥哈希，用于验证但不存储密钥本身
+    - has_backup: 标记是否有本地备份（客户端管理）
+    """
     __tablename__ = "images"
     
     id = Column(String(64), primary_key=True, index=True)
-    file_path = Column(String(512), nullable=False)  # 文件存储路径
+    file_path = Column(String(512), nullable=False)  # 带水印的图片存储路径
     thumbnail_path = Column(String(512), nullable=True)  # 缩略图路径
     width = Column(Integer, nullable=True)  # 图片宽度
     height = Column(Integer, nullable=True)  # 图片高度
     size = Column(BigInteger, nullable=True)  # 文件大小（字节）
     format = Column(String(10), nullable=True)  # 图片格式（jpg, png等）
     category = Column(String(50), nullable=True)  # 图片分类
+    watermark_key_hash = Column(String(256), nullable=True)  # 水印密钥哈希值（用于验证）
+    has_backup = Column(Boolean, default=False, nullable=False)  # 是否有本地备份（不在服务器）
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
 
 

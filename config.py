@@ -15,7 +15,8 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 THUMBNAIL_DIR = os.path.join(UPLOAD_DIR, "thumbnails")
 
 # API基础URL（用于生成图片URL）
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+# 默认使用服务器IP地址，支持远程访问
+BASE_URL = os.getenv("BASE_URL", "http://192.168.0.120:8000")
 
 # 允许的文件格式
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}

@@ -85,13 +85,15 @@ def create_image(
     size: int = None,
     format: str = None,
     category: str = None,
-    image_id: str = None
+    image_id: str = None,
+    watermark_key_hash: str = None,
+    has_backup: bool = False
 ) -> Image:
     """
     创建图片记录
     
     Args:
-        file_path: 文件路径
+        file_path: 带水印的图片文件路径（存储在服务器，用于分发）
         thumbnail_path: 缩略图路径
         width: 宽度
         height: 高度
@@ -99,6 +101,8 @@ def create_image(
         format: 格式
         category: 分类
         image_id: 图片ID（如果不提供则自动生成）
+        watermark_key_hash: 水印密钥的哈希值（用于验证，不存储密钥本身）
+        has_backup: 是否有本地备份（备份存储在客户端，不在服务器）
     
     Returns:
         创建的Image对象
@@ -117,7 +121,9 @@ def create_image(
             height=height,
             size=size,
             format=format,
-            category=category
+            category=category,
+            watermark_key_hash=watermark_key_hash,
+            has_backup=has_backup
         )
         
         db.add(image)

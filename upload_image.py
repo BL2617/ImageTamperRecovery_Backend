@@ -1,9 +1,23 @@
 """
-图片上传工具脚本
-用于测试和初始化数据，可以上传图片到服务器
+图片上传API服务
+
+新架构说明：
+1. 支持两种上传模式：
+   - 模式1：客户端已嵌入水印（推荐）- 客户端直接上传带水印的图片
+   - 模式2：服务器嵌入水印 - 上传原图+密钥，服务器嵌入水印
+
+2. 备份说明：
+   - 原图备份存储在客户端本地，不在服务器
+   - has_backup 标记是否有本地备份（由客户端管理）
+
+3. 安全性：
+   - 服务器只存储带水印的图片（用于分发）
+   - 不存储原图备份，降低泄露风险
+   - 只存储密钥哈希，用于验证但不存储密钥本身
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 import os
 import uuid
 from PIL import Image as PILImage
@@ -12,8 +26,10 @@ from datetime import datetime
 from models import Image
 from database import create_image, init_db
 from config import UPLOAD_DIR, THUMBNAIL_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE, BASE_URL
+from watermark import embed_watermark
+import hashlib
 
-app = FastAPI(title="图片上传API")
+app = FastAPI(title="图片上传API - 支持本地备份架构")
 
 # 配置CORS
 app.add_middleware(
@@ -50,13 +66,29 @@ def generate_thumbnail(image_path: str, thumbnail_path: str, max_size: tuple = (
 @app.post("/api/upload")
 async def upload_image(
     file: UploadFile = File(...),
-    category: str = None
+    category: Optional[str] = Form(None),
+    key: Optional[str] = Form(None),
+    watermark_key_hash: Optional[str] = Form(None),
+    has_backup: Optional[bool] = Form(False),
+    mode: Optional[str] = Form("server")  # "server" 或 "client"
 ):
     """
-    上传图片
+    上传图片（支持两种模式）
     
-    - **file**: 图片文件
-    - **category**: 图片分类（可选）
+    **模式1：服务器嵌入水印（mode="server"）**
+    - file: 原始图片文件
+    - key: 用户密钥（用于嵌入水印）
+    - category: 图片分类（可选）
+    
+    **模式2：客户端已嵌入水印（mode="client"，推荐）**
+    - file: 已嵌入水印的图片文件
+    - watermark_key_hash: 密钥的SHA256哈希值
+    - has_backup: 是否有本地备份（True/False）
+    - category: 图片分类（可选）
+    
+    说明：
+    - 模式2更安全，备份在客户端本地，服务器不存储原图
+    - 模式1适合客户端无法嵌入水印的场景（服务器代为处理）
     """
     # 检查文件扩展名
     file_ext = os.path.splitext(file.filename)[1].lower()
@@ -92,9 +124,47 @@ async def upload_image(
         format_name = img.format.lower() if img.format else file_ext[1:]
         file_size = os.path.getsize(file_path)
     except Exception as e:
-        # 如果无法读取图片信息，删除文件
         os.remove(file_path)
         raise HTTPException(status_code=400, detail=f"无法读取图片信息: {str(e)}")
+    
+    # 根据模式处理
+    final_watermark_key_hash = None
+    final_has_backup = False
+    
+    if mode == "client":
+        # 模式2：客户端已嵌入水印
+        if not watermark_key_hash:
+            os.remove(file_path)
+            raise HTTPException(
+                status_code=400,
+                detail="客户端模式下必须提供 watermark_key_hash"
+            )
+        final_watermark_key_hash = watermark_key_hash
+        final_has_backup = bool(has_backup)
+        
+    elif mode == "server":
+        # 模式1：服务器嵌入水印
+        if not key:
+            # 如果没有提供密钥，直接保存（不带水印）
+            pass
+        else:
+            try:
+                # 计算密钥哈希
+                final_watermark_key_hash = hashlib.sha256(key.encode()).hexdigest()
+                
+                # 嵌入水印
+                watermarked_path = os.path.join(UPLOAD_DIR, f"{file_id}_watermarked{file_ext}")
+                if embed_watermark(file_path, watermarked_path, key):
+                    # 替换原文件为带水印的文件
+                    os.remove(file_path)
+                    os.rename(watermarked_path, file_path)
+                    file_size = os.path.getsize(file_path)
+                else:
+                    raise HTTPException(status_code=500, detail="嵌入水印失败")
+            except Exception as e:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                raise HTTPException(status_code=500, detail=f"水印处理失败: {str(e)}")
     
     # 生成缩略图
     thumbnail_name = f"{file_id}_thumb{file_ext}"
@@ -114,7 +184,9 @@ async def upload_image(
             height=height,
             size=file_size,
             format=format_name,
-            category=category
+            category=category,
+            watermark_key_hash=final_watermark_key_hash,
+            has_backup=final_has_backup
         )
         
         return {
@@ -127,7 +199,9 @@ async def upload_image(
                 "width": width,
                 "height": height,
                 "size": file_size,
-                "format": format_name
+                "format": format_name,
+                "hasBackup": final_has_backup,
+                "mode": mode
             }
         }
     except Exception as e:
