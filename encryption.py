@@ -95,3 +95,9 @@ def decrypt_image(encrypted_path: str, output_path: str, password: str) -> bool:
 
 
 
+
+
+
+
+
+
