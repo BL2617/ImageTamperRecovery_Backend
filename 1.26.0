@@ -1,0 +1,6 @@
+Looking in indexes: https://pypi.tuna.tsinghua.edu.cn/simple
+Collecting numpy
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/51/cf/52a703dbeb0c65807540d29699fef5fda073434ff61846a564d5c296420f/numpy-2.4.1-cp312-cp312-win_amd64.whl (12.3 MB)
+     ---------------------------------------- 12.3/12.3 MB 20.3 MB/s eta 0:00:00
+Installing collected packages: numpy
+Successfully installed numpy-2.4.1

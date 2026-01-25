@@ -1,17 +1,23 @@
 """
-图片上传工具脚本
-用于测试和初始化数据，可以上传图片到服务器
+图片上传API
+支持用户认证、水印嵌入、加密存储
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import uuid
+import hashlib
 from PIL import Image as PILImage
 from datetime import datetime
+from typing import Optional
 
-from models import Image
-from database import create_image, init_db
-from config import UPLOAD_DIR, THUMBNAIL_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE, BASE_URL
+from app.models.models import Image, User
+from app.utils.database import init_db, SessionLocal
+from app.utils.config import UPLOAD_DIR, THUMBNAIL_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE, BASE_URL
+from app.utils.auth import get_current_active_user
+from app.utils.watermark import embed_watermark
+from app.services.image_service import create_image_with_encryption
+from app.services.user_service import create_operation_log
 
 app = FastAPI(title="图片上传API")
 
@@ -47,16 +53,32 @@ def generate_thumbnail(image_path: str, thumbnail_path: str, max_size: tuple = (
         return False
 
 
+def get_db():
+    """获取数据库会话"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 @app.post("/api/upload")
 async def upload_image(
     file: UploadFile = File(...),
-    category: str = None
+    category: Optional[str] = Form(None),
+    key: Optional[str] = Form(None),  # 水印密钥（可选）
+    encrypt_key: Optional[str] = Form(None),  # 加密密钥（可选）
+    current_user: User = Depends(get_current_active_user),
+    db = Depends(get_db)
 ):
     """
-    上传图片
+    上传图片（需要登录）
+    支持水印嵌入和加密存储
     
     - **file**: 图片文件
     - **category**: 图片分类（可选）
+    - **key**: 水印密钥（可选，如果提供则嵌入水印）
+    - **encrypt_key**: 加密密钥（可选，如果提供则对图像进行AES加密存储）
     """
     # 检查文件扩展名
     file_ext = os.path.splitext(file.filename)[1].lower()
@@ -81,9 +103,19 @@ async def upload_image(
     file_name = f"{file_id}{file_ext}"
     file_path = os.path.join(UPLOAD_DIR, file_name)
     
-    # 保存文件
+    # 保存原始文件
     with open(file_path, "wb") as f:
         f.write(contents)
+    
+    # 如果提供了水印密钥，嵌入水印
+    watermark_key_hash = None
+    if key:
+        watermarked_path = os.path.join(UPLOAD_DIR, f"{file_id}_watermarked{file_ext}")
+        if embed_watermark(file_path, watermarked_path, key):
+            # 使用带水印的图片替换原图
+            os.remove(file_path)
+            os.rename(watermarked_path, file_path)
+            watermark_key_hash = hashlib.sha256(key.encode()).hexdigest()
     
     # 获取图片信息
     try:
@@ -93,7 +125,8 @@ async def upload_image(
         file_size = os.path.getsize(file_path)
     except Exception as e:
         # 如果无法读取图片信息，删除文件
-        os.remove(file_path)
+        if os.path.exists(file_path):
+            os.remove(file_path)
         raise HTTPException(status_code=400, detail=f"无法读取图片信息: {str(e)}")
     
     # 生成缩略图
@@ -104,17 +137,30 @@ async def upload_image(
     if generate_thumbnail(file_path, thumbnail_path):
         thumbnail_relative_path = thumbnail_name
     
-    # 保存到数据库
+    # 保存到数据库（使用加密存储服务）
     try:
-        image = create_image(
-            image_id=file_id,
-            file_path=file_name,  # 只存储文件名，不存储完整路径
+        image = create_image_with_encryption(
+            db=db,
+            file_path=file_name,
+            user_id=current_user.id,
             thumbnail_path=thumbnail_relative_path,
             width=width,
             height=height,
             size=file_size,
             format=format_name,
-            category=category
+            category=category,
+            watermark_key_hash=watermark_key_hash,
+            has_backup=False,  # 备份在客户端
+            encrypt_key=encrypt_key
+        )
+        
+        # 记录操作日志
+        create_operation_log(
+            db=db,
+            user_id=current_user.id,
+            operation_type="upload",
+            operation_desc=f"上传图片: {file.filename}",
+            image_id=image.id
         )
         
         return {

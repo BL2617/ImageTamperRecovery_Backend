@@ -4,7 +4,8 @@
 """
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker, Session
-from models import Base, Image
+from ..models.models import Base, Image
+from collections.abc import Generator
 import os
 import hashlib
 import uuid
@@ -27,7 +28,7 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
 
-def get_db() -> Session:
+def get_db() -> Generator[Session, None, None]:
     """获取数据库会话"""
     db = SessionLocal()
     try:

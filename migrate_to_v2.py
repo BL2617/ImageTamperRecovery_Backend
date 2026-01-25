@@ -6,7 +6,7 @@
 - 添加 has_backup 字段（标记是否有本地备份）
 """
 from sqlalchemy import create_engine, inspect, text
-from models import Base, Image
+from app.models.models import Base, Image
 
 # 数据库文件路径
 DATABASE_URL = "sqlite:///./image_tamper_recovery.db"

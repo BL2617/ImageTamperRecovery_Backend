@@ -9,7 +9,7 @@
 2. 使用本地备份文件恢复原始图片
 """
 
-from encryption import decrypt_image
+from app.utils.encryption import decrypt_image
 import os
 import sys
 

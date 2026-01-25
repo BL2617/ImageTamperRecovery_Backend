@@ -1,28 +1,42 @@
 """
 图像加密模块
-用于加密备份原图
+使用AES对称加密算法对图像进行加密存储
+支持本地和云端存储的加密
 """
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.backends import default_backend
 import hashlib
 import base64
-from typing import Optional
 import os
+from typing import Optional
 
 
-def derive_key_from_password(password: str) -> bytes:
+def derive_key_from_password(password: str, salt: Optional[bytes] = None) -> bytes:
     """
-    从用户密码派生加密密钥
+    从用户密码派生加密密钥（使用PBKDF2）
     
     Args:
         password: 用户密码
+        salt: 盐值（可选，如果不提供则使用固定盐值）
     
     Returns:
-        加密密钥
+        加密密钥（32字节）
     """
-    # 使用SHA256哈希密码
-    password_hash = hashlib.sha256(password.encode()).digest()
-    # 转换为Fernet格式的密钥（base64编码）
-    key = base64.urlsafe_b64encode(password_hash[:32])
+    if salt is None:
+        # 使用固定盐值（生产环境应使用随机盐值）
+        salt = b'image_tamper_recovery_salt_2024'
+    
+    # 使用PBKDF2派生密钥
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+        backend=default_backend()
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
     return key
 
 

@@ -13,8 +13,8 @@
 6. 备份文件保留在客户端本地
 """
 
-from watermark import embed_watermark
-from encryption import encrypt_image
+from app.utils.watermark import embed_watermark
+from app.utils.encryption import encrypt_image
 import os
 import sys
 import hashlib
