@@ -3,7 +3,7 @@
 添加缺失的列：original_backup_path 和 watermark_key
 """
 from sqlalchemy import create_engine, inspect, text
-from app.models.models import Base, Image
+from models import Base, Image
 
 # 数据库文件路径
 DATABASE_URL = "sqlite:///./image_tamper_recovery.db"

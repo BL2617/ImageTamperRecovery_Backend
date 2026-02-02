@@ -6,7 +6,7 @@ from sqlalchemy import Column, String, Integer, BigInteger, DateTime, Text, Bool
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime
 
@@ -198,15 +198,9 @@ class UserInfo(BaseModel):
 
 class TokenResponse(BaseModel):
     """Token响应模型"""
-    code: int = 200
-    message: str = "成功"
-    access_token: str = Field(alias="accessToken", serialization_alias="accessToken")
-    token_type: str = Field(default="bearer", alias="tokenType", serialization_alias="tokenType")
-    user: Optional[UserInfo] = None
-    
-    model_config = {
-        "populate_by_name": True,  # 允许使用字段名或别名
-    }
+    access_token: str
+    token_type: str = "bearer"
+    user: UserInfo
 
 
 class OperationLogData(BaseModel):

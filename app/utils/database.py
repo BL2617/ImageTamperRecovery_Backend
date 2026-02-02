@@ -4,8 +4,7 @@
 """
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker, Session
-from ..models.models import Base, Image
-from collections.abc import Generator
+from app.models.models import Base, Image
 import os
 import hashlib
 import uuid
@@ -28,7 +27,7 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db() -> Session:
     """获取数据库会话"""
     db = SessionLocal()
     try:
@@ -46,7 +45,7 @@ def get_image_by_id(image_id: str) -> Image | None:
         db.close()
 
 
-def get_image_list(page: int = 1, page_size: int = 20, category: str = None) -> tuple[list[Image], int]:
+def get_image_list(page: int = 1, page_size: int = 20, category: str = None, user_id: str = None) -> tuple[list[Image], int]:
     """
     获取图片列表
     
@@ -54,6 +53,7 @@ def get_image_list(page: int = 1, page_size: int = 20, category: str = None) -> 
         page: 页码，从1开始
         page_size: 每页数量
         category: 分类筛选（可选）
+        user_id: 用户ID（可选，如果提供则只返回该用户的图片）
     
     Returns:
         (图片列表, 总数)
@@ -61,6 +61,13 @@ def get_image_list(page: int = 1, page_size: int = 20, category: str = None) -> 
     db = SessionLocal()
     try:
         query = db.query(Image)
+        
+        # 用户筛选（必须）
+        if user_id:
+            query = query.filter(Image.user_id == user_id)
+        else:
+            # 如果没有提供 user_id，只返回没有关联用户的图片（兼容旧数据）
+            query = query.filter(Image.user_id.is_(None))
         
         # 分类筛选
         if category:

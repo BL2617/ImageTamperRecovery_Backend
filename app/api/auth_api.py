@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 from typing import Optional
-from collections.abc import Generator
-from ..models.models import UserRegister, UserLogin, TokenResponse, UserInfo, OperationLogListResponse, OperationLogData, User
-from ..utils.database import SessionLocal
-from ..utils.auth import get_current_user, get_current_admin_user, create_access_token
-from ..services.user_service import (
+
+from app.models.models import User, UserRegister, UserLogin, TokenResponse, UserInfo, OperationLogListResponse, OperationLogData
+from app.utils.database import SessionLocal
+from app.utils.auth import get_current_user, get_current_admin_user, create_access_token
+from app.services.user_service import (
     create_user, authenticate_user, get_user_by_id,
     update_user_device, create_operation_log, get_operation_logs
 )
@@ -18,7 +18,7 @@ from ..services.user_service import (
 router = APIRouter(prefix="/api/auth", tags=["认证"])
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db() -> Session:
     """获取数据库会话"""
     db = SessionLocal()
     try:
@@ -34,7 +34,7 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-@router.post("/register", response_model=TokenResponse)
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     user_data: UserRegister,
     request: Request,
@@ -71,10 +71,7 @@ async def register(
         )
         
         return TokenResponse(
-            code=200,
-            message="注册成功",
             access_token=access_token,
-            token_type="bearer",
             user=UserInfo(
                 id=user.id,
                 username=user.username,
@@ -141,10 +138,7 @@ async def login(
     )
     
     return TokenResponse(
-        code=200,
-        message="登录成功",
         access_token=access_token,
-        token_type="bearer",
         user=UserInfo(
             id=user.id,
             username=user.username,

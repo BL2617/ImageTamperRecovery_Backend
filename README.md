@@ -1,85 +1,34 @@
-# 图像篡改检测与恢复系统 - 后端
+# 图片传输后端 API
 
-## 系统概述
+这是一个基于 FastAPI 的图片传输后端服务，为 Android 客户端提供图片查询和下载功能。
 
-本系统提供完整的图像篡改检测与恢复功能，包括账号系统、图像管理、篡改定位与恢复、安全防护等核心模块。
+## 功能特性
 
-## 主要功能模块
-
-### 1. 账号系统
-- 用户注册、登录、退出登录
-- JWT Token认证
-- 跨设备数据同步（通过设备ID）
-- 操作日志记录
-- 后台管理功能（管理员）
-
-### 2. 图像管理
-- 图像上传（支持水印嵌入）
-- 本地存储和云端存储
-- AES加密存储
-- 图像列表查询（分页、分类筛选）
-- 图像下载
-
-### 3. 篡改定位与恢复
-- **有原图情况**：
-  - 轻量化传统图像篡改定位检测算法（LSB水印）
-  - 增量传输（仅传输篡改区域数据）
-  - 局部恢复技术
-- **无原图情况**：
-  - PSCC-Net模型盲检测（暂未实现）
-
-### 4. 安全防护
-- HTTPS安全协议（支持配置）
-- AES对称加密算法（本地和云端存储）
-- JWT Token认证
-- 密码加密存储（bcrypt）
-
-## 技术栈
-
-- **框架**: FastAPI
-- **数据库**: SQLite（可扩展为PostgreSQL/MySQL）
-- **ORM**: SQLAlchemy
-- **认证**: JWT (python-jose)
-- **加密**: cryptography (Fernet/AES)
-- **图像处理**: Pillow, NumPy
+- ✅ 获取单张图片信息（通过ID）
+- ✅ 获取图片列表（支持分页和分类筛选）
+- ✅ 下载图片（通过ID）
+- ✅ 获取缩略图
+- ✅ 图片上传功能（用于测试和初始化数据）
+- ✅ SQLite 数据库存储图片元数据
+- ✅ 本地文件系统存储图片文件
 
 ## 项目结构
 
 ```
 ImageTamperRecovery_Backend/
-├── main.py                 # 主应用（图像查询和下载）
-├── upload_image.py          # 图像上传服务
-├── tamper_detection.py      # 篡改检测服务
-├── app/                     # 应用主包
-│   ├── api/                 # API路由
-│   │   ├── __init__.py
-│   │   └── auth_api.py      # 账号系统API
-│   ├── models/              # 数据模型
-│   │   ├── __init__.py
-│   │   └── models.py        # 所有数据模型定义
-│   ├── services/            # 业务逻辑服务
-│   │   ├── __init__.py
-│   │   ├── user_service.py  # 用户服务
-│   │   └── image_service.py # 图像服务
-│   └── utils/               # 工具类
-│       ├── __init__.py
-│       ├── auth.py          # 认证工具
-│       ├── config.py        # 配置文件
-│       ├── database.py      # 数据库操作
-│       ├── encryption.py    # 加密工具
-│       └── watermark.py    # 水印算法
-├── client_watermark_tool.py # 客户端水印工具示例
-├── client_recovery_tool.py  # 客户端恢复工具示例
-├── upload_image_client.py   # 上传客户端工具
-├── migrate_db.py            # 数据库迁移脚本
-├── migrate_to_v2.py         # V2迁移脚本
-├── requirements.txt         # 依赖列表
-├── README.md                # 项目说明
-├── HTTPS_CONFIG.md          # HTTPS配置说明
-└── QUICKSTART.md            # 快速开始指南
+├── main.py              # 主应用文件（提供查询和下载API）
+├── upload_image.py      # 图片上传服务（用于测试）
+├── models.py            # 数据模型定义
+├── database.py          # 数据库操作
+├── config.py            # 配置文件
+├── requirements.txt     # Python依赖
+├── README.md            # 项目说明
+├── uploads/             # 图片存储目录（自动创建）
+│   └── thumbnails/      # 缩略图存储目录（自动创建）
+└── image_tamper_recovery.db  # SQLite数据库文件（自动创建）
 ```
 
-## 快速开始
+## 安装和运行
 
 ### 1. 安装依赖
 
@@ -87,117 +36,196 @@ ImageTamperRecovery_Backend/
 pip install -r requirements.txt
 ```
 
-### 2. 配置环境
-
-编辑 `config.py` 或设置环境变量：
-- `BASE_URL`: API基础URL
-- `DATABASE_URL`: 数据库连接字符串
-- `SECRET_KEY`: JWT密钥（生产环境必须修改）
-
-### 3. 启动服务
-
-#### 方式1：分别启动各个服务
+### 2. 运行主服务
 
 ```bash
-# 主服务（图像查询和下载）
 python main.py
-
-# 上传服务
-python upload_image.py
-
-# 检测服务
-python tamper_detection.py
 ```
 
-#### 方式2：使用批处理脚本（Windows）
+服务将在 `http://localhost:8000` 启动。
+
+### 3. 运行上传服务（可选，用于测试）
 
 ```bash
-start_all_services.bat
+python upload_image.py
 ```
 
-### 4. API文档
+上传服务将在 `http://localhost:8001` 启动。
 
-启动服务后，访问：
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+## API 接口
 
-## API接口
+### 1. 获取单张图片信息
 
-### 账号系统 (`/api/auth`)
+```
+GET /api/images/{image_id}
+```
 
-- `POST /api/auth/register` - 用户注册
-- `POST /api/auth/login` - 用户登录
-- `POST /api/auth/logout` - 退出登录
-- `GET /api/auth/me` - 获取当前用户信息
-- `GET /api/auth/logs` - 获取操作日志
+**响应示例：**
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "id": "abc123",
+    "url": "http://localhost:8000/api/images/abc123/download",
+    "thumbnailUrl": "http://localhost:8000/api/images/abc123/thumbnail",
+    "width": 1920,
+    "height": 1080,
+    "size": 1024000,
+    "format": "jpg",
+    "timestamp": 1703779200000
+  }
+}
+```
 
-### 图像管理 (`/api/images`)
+### 2. 获取图片列表
 
-- `GET /api/images` - 获取图像列表（需要登录）
-- `GET /api/images/{image_id}` - 获取图像信息（需要登录）
-- `GET /api/images/{image_id}/download` - 下载图像（需要登录）
-- `GET /api/images/{image_id}/thumbnail` - 获取缩略图
+```
+GET /api/images?page=1&pageSize=20&category=风景
+```
 
-### 图像上传 (`/api/upload`)
+**查询参数：**
+- `page`: 页码，从1开始（默认：1）
+- `pageSize`: 每页数量（默认：20，最大：100）
+- `category`: 图片分类（可选）
 
-- `POST /api/upload` - 上传图像（需要登录）
-  - 支持参数：
-    - `file`: 图像文件
-    - `category`: 分类（可选）
-    - `key`: 水印密钥（可选）
-    - `encrypt_key`: 加密密钥（可选）
+**响应示例：**
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "images": [
+      {
+        "id": "abc123",
+        "url": "http://localhost:8000/api/images/abc123/download",
+        "thumbnailUrl": "http://localhost:8000/api/images/abc123/thumbnail",
+        "width": 1920,
+        "height": 1080,
+        "size": 1024000,
+        "format": "jpg",
+        "timestamp": 1703779200000
+      }
+    ],
+    "total": 100,
+    "page": 1,
+    "pageSize": 20
+  }
+}
+```
 
-### 篡改检测 (`/api/detect`)
+### 3. 下载图片
 
-- `POST /api/detect` - 检测图像篡改（需要登录）
-- `POST /api/detect/{image_id}` - 检测服务器上的图像（需要登录）
-- `POST /api/images/{image_id}/incremental-transfer` - 增量传输（需要登录）
-- `POST /api/images/{image_id}/recover-region` - 局部恢复（需要登录）
+```
+GET /api/images/{image_id}/download
+```
 
-## 安全配置
+返回图片的二进制数据。
 
-### HTTPS配置
+### 4. 获取缩略图
 
-详见 `HTTPS_CONFIG.md`
+```
+GET /api/images/{image_id}/thumbnail
+```
 
-### 加密存储
+返回缩略图的二进制数据。
 
-- 使用AES对称加密算法
-- 密钥派生使用PBKDF2（100,000次迭代）
-- 支持本地和云端加密存储
+### 5. 上传图片（测试用）
 
-## 数据库模型
+```
+POST /api/upload
+Content-Type: multipart/form-data
 
-### User（用户）
-- id, username, email, hashed_password
-- is_active, is_admin
-- device_id（用于跨设备同步）
+file: [图片文件]
+category: [可选，图片分类]
+```
 
-### Image（图像）
-- id, user_id, file_path, thumbnail_path
-- width, height, size, format, category
-- watermark_key_hash, has_backup
-- encrypted_data（AES加密数据）
-- created_at
+**响应示例：**
+```json
+{
+  "code": 200,
+  "message": "上传成功",
+  "data": {
+    "id": "abc123",
+    "url": "http://localhost:8000/api/images/abc123/download",
+    "thumbnailUrl": "http://localhost:8000/api/images/abc123/thumbnail",
+    "width": 1920,
+    "height": 1080,
+    "size": 1024000,
+    "format": "jpg"
+  }
+}
+```
 
-### OperationLog（操作日志）
-- id, user_id, operation_type, operation_desc
-- image_id, ip_address, device_info
-- created_at
+## API 文档
 
-## 开发说明
+启动服务后，可以访问以下地址查看自动生成的 API 文档：
+
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+## 数据库
+
+项目使用 SQLite 数据库存储图片元数据。数据库文件 `image_tamper_recovery.db` 会在首次运行时自动创建。
+
+**images 表结构：**
+- `id`: 图片ID（主键）
+- `file_path`: 文件存储路径
+- `thumbnail_path`: 缩略图路径
+- `width`: 图片宽度
+- `height`: 图片高度
+- `size`: 文件大小（字节）
+- `format`: 图片格式
+- `category`: 图片分类
+- `created_at`: 创建时间
+
+## 配置
+
+可以通过环境变量或修改 `config.py` 来配置：
+
+- `HOST`: 服务器主机（默认：0.0.0.0）
+- `PORT`: 服务器端口（默认：8000）
+- `BASE_URL`: API基础URL（用于生成图片URL）
+- `UPLOAD_DIR`: 图片存储目录（默认：uploads）
+- `MAX_FILE_SIZE`: 最大文件大小（默认：10MB）
+
+## 注意事项
+
+1. 生产环境建议：
+   - 修改 CORS 配置，限制允许的域名
+   - 使用更安全的数据库（如 PostgreSQL）
+   - 配置 HTTPS
+   - 添加身份验证和授权
+   - 设置合适的文件大小限制
+
+2. 图片存储：
+   - 原图存储在 `uploads/` 目录
+   - 缩略图存储在 `uploads/thumbnails/` 目录
+   - 数据库只存储文件路径和元数据，不存储二进制数据
+
+3. 支持的图片格式：
+   - JPG/JPEG
+   - PNG
+   - GIF
+   - WebP
+   - BMP
+
+## 开发
 
 ### 添加新功能
 
 1. 在 `models.py` 中定义数据模型
 2. 在 `database.py` 中添加数据库操作
-3. 在相应的服务文件中添加业务逻辑
-4. 在API文件中添加路由
+3. 在 `main.py` 中添加 API 路由
 
 ### 测试
 
-使用Postman或curl测试API，或参考 `client_watermark_tool.py` 和 `client_recovery_tool.py` 中的示例。
+可以使用以下工具测试 API：
+- Postman
+- curl
+- Swagger UI（访问 `/docs`）
 
 ## 许可证
 
 MIT License
+

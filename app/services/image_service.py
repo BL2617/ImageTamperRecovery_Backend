@@ -12,9 +12,9 @@ from typing import Optional, Tuple
 from sqlalchemy.orm import Session
 
 from app.models.models import Image as ImageModel
-from app.utils.database import create_image as db_create_image
 from app.utils.watermark import detect_tampering, visualize_tampering
 from app.utils.encryption import encrypt_image, decrypt_image
+from app.utils.config import UPLOAD_DIR
 
 
 def create_image_with_encryption(
@@ -27,6 +27,7 @@ def create_image_with_encryption(
     size: Optional[int] = None,
     format: Optional[str] = None,
     category: Optional[str] = None,
+    watermark_key: Optional[str] = None,
     watermark_key_hash: Optional[str] = None,
     has_backup: bool = False,
     encrypt_key: Optional[str] = None
@@ -35,13 +36,17 @@ def create_image_with_encryption(
     创建图像记录，支持加密存储
     
     Args:
+        watermark_key: 水印密钥（如果提供，将计算哈希值）
+        watermark_key_hash: 水印密钥哈希值（如果提供 watermark_key，此参数将被忽略）
         encrypt_key: 加密密钥，如果提供则对图像数据进行AES加密
     """
+    # 计算水印密钥哈希值
+    if watermark_key and not watermark_key_hash:
+        watermark_key_hash = hashlib.sha256(watermark_key.encode()).hexdigest()
     # 如果提供了加密密钥，对图像进行加密
     encrypted_data = None
     if encrypt_key:
-        # 构建完整路径（file_path 是相对于 UPLOAD_DIR 的路径）
-        from app.utils.config import UPLOAD_DIR
+        # file_path 可能是相对路径，需要构建完整路径
         full_path = os.path.join(UPLOAD_DIR, file_path) if not os.path.isabs(file_path) else file_path
         if os.path.exists(full_path):
             try:
@@ -55,8 +60,10 @@ def create_image_with_encryption(
             except Exception as e:
                 print(f"加密图像失败: {e}")
     
-    # 直接在当前会话中创建图像记录
+    # 生成唯一ID（如果还没有）
     image_id = str(uuid.uuid4())
+    
+    # 创建图像记录
     image = ImageModel(
         id=image_id,
         file_path=file_path,
