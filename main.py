@@ -20,6 +20,8 @@ from app.utils.config import UPLOAD_DIR, THUMBNAIL_DIR
 from app.utils.auth import get_current_user
 from app.services.image_service import create_image_with_encryption
 from app.api.auth_api import router as auth_router
+from app.api.detection_api import router as detection_router
+from app.api.recovery_api import router as recovery_router
 
 # 确保目录存在
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -51,8 +53,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册认证路由
+# 注册路由
 app.include_router(auth_router)
+app.include_router(detection_router)
+app.include_router(recovery_router)
 
 
 def generate_thumbnail(image_path: str, thumbnail_path: str, max_size: int = 300):

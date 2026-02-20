@@ -223,3 +223,119 @@ class OperationLogListResponse(BaseModel):
     page: Optional[int] = None
     pageSize: Optional[int] = None
 
+
+# 检测相关数据库模型
+class DetectionResult(Base):
+    """检测结果数据库模型"""
+    __tablename__ = "detection_results"
+    
+    id = Column(String(64), primary_key=True, index=True)
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=False, index=True)
+    detection_type = Column(String(20), nullable=False)  # lsb, compare, model
+    original_image_id = Column(String(64), ForeignKey("images.id"), nullable=True)
+    detected_image_id = Column(String(64), ForeignKey("images.id"), nullable=True)
+    is_tampered = Column(Boolean, nullable=False, default=False)
+    tamper_ratio = Column(String(20), nullable=True)  # 篡改比例（字符串格式，如"0.1234"）
+    confidence = Column(String(20), nullable=True)  # 置信度
+    tampered_regions = Column(Text, nullable=True)  # JSON格式的篡改区域列表
+    visualization_path = Column(String(512), nullable=True)  # 可视化图片路径
+    detection_params = Column(Text, nullable=True)  # JSON格式的检测参数
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    
+    # 关系
+    user = relationship("User")
+    original_image = relationship("Image", foreign_keys=[original_image_id])
+    detected_image = relationship("Image", foreign_keys=[detected_image_id])
+
+
+class TamperedBlock(Base):
+    """被篡改的块数据库模型（用于方式2的恢复功能）"""
+    __tablename__ = "tampered_blocks"
+    
+    id = Column(String(64), primary_key=True, index=True)
+    detection_result_id = Column(String(64), ForeignKey("detection_results.id"), nullable=False, index=True)
+    block_index = Column(Integer, nullable=False)  # 块索引
+    x = Column(Integer, nullable=False)  # 块左上角x坐标
+    y = Column(Integer, nullable=False)  # 块左上角y坐标
+    width = Column(Integer, nullable=False)  # 块宽度
+    height = Column(Integer, nullable=False)  # 块高度
+    original_block_data = Column(Text, nullable=True)  # 原始块数据（base64编码的PNG）
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # 关系
+    detection_result = relationship("DetectionResult")
+
+
+# 检测相关API响应模型
+class TamperedRegion(BaseModel):
+    """篡改区域模型"""
+    x: int
+    y: int
+    width: int
+    height: int
+    confidence: Optional[float] = None
+
+
+class DetectionResultData(BaseModel):
+    """检测结果数据模型"""
+    id: str
+    detection_type: str  # lsb, compare, model
+    original_image_id: Optional[str] = None
+    detected_image_id: Optional[str] = None
+    is_tampered: bool
+    tamper_ratio: Optional[str] = None
+    tamper_ratio_percent: Optional[float] = None  # 百分比形式
+    confidence: Optional[str] = None
+    tampered_regions: Optional[List[TamperedRegion]] = None
+    visualization_url: Optional[str] = None
+    created_at: Optional[str] = None  # 改为字符串类型，便于序列化
+
+
+class DetectionResponse(BaseModel):
+    """检测响应模型"""
+    code: int
+    message: str
+    data: DetectionResultData
+
+
+class BlockComparisonData(BaseModel):
+    """分块比对数据模型"""
+    block_index: int
+    x: int
+    y: int
+    width: int
+    height: int
+    is_tampered: bool
+    difference_ratio: Optional[float] = None
+
+
+class BlockComparisonResponse(BaseModel):
+    """分块比对响应模型"""
+    code: int
+    message: str
+    data: DetectionResultData
+    blocks: List[BlockComparisonData]
+
+
+class RestoreBlockData(BaseModel):
+    """恢复块数据模型"""
+    block_index: int
+    x: int
+    y: int
+    width: int
+    height: int
+    block_data: str  # base64编码的PNG数据
+
+
+class RestoreBlocksRequest(BaseModel):
+    """恢复块请求模型"""
+    detection_result_id: str
+    block_indices: List[int]  # 要恢复的块索引列表
+
+
+class RestoreBlocksResponse(BaseModel):
+    """恢复块响应模型"""
+    code: int
+    message: str
+    data: List[RestoreBlockData]
+

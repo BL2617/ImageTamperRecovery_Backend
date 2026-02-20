@@ -1,0 +1,1 @@
+python C:\work\learn\ImageTamperRecovery\ImageTamperRecovery_Backend\main.py
