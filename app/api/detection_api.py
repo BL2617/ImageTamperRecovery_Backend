@@ -39,7 +39,7 @@ def format_created_at(created_at_value):
 async def detect_lsb(
     request: Request,
     file: UploadFile = File(..., description="待检测的图片文件"),
-    key: str = Form(..., description="用户密钥（用于生成和验证水印）"),
+    key: str = Form("", description="用户密钥（用于生成和验证水印，可为空）"),
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):

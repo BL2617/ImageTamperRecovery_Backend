@@ -24,3 +24,7 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 # 最大文件大小（字节），默认10MB
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", 10 * 1024 * 1024))
 
+# PSCC-Net 模型配置
+PSCC_NET_MODEL_PATH = os.getenv("PSCC_NET_MODEL_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "PSCC-Net", "weights", "pscc_net.pth"))
+PSCC_NET_USE_GPU = os.getenv("PSCC_NET_USE_GPU", "true").lower() == "true"
+

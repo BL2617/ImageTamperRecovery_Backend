@@ -14,21 +14,28 @@ def generate_watermark_sequence(image_shape: Tuple[int, int], key: str) -> np.nd
     
     Args:
         image_shape: 图像尺寸 (height, width)
-        key: 用户密钥
+        key: 用户密钥（可以为空字符串）
     
     Returns:
         水印序列（二维数组，0或1）
     """
     height, width = image_shape
-    total_pixels = height * width
+    
+    # 确保key不为None
+    if key is None:
+        key = ""
     
     # 使用密钥生成伪随机序列
     key_hash = hashlib.sha256(key.encode()).digest()
-    seed = int.from_bytes(key_hash[:8], 'big')
-    np.random.seed(seed)
+    # 限制seed在0到2^32-1之间（numpy.random.seed的要求）
+    # 使用前4个字节（32位）来生成seed
+    seed = int.from_bytes(key_hash[:4], 'big') % (2**32)
+    
+    # 创建新的随机数生成器，避免影响全局状态
+    rng = np.random.RandomState(seed)
     
     # 生成随机水印位（0或1）
-    watermark = np.random.randint(0, 2, size=(height, width), dtype=np.uint8)
+    watermark = rng.randint(0, 2, size=(height, width), dtype=np.uint8)
     
     return watermark
 
@@ -137,17 +144,43 @@ def visualize_tampering(image_path: str, tamper_mask: np.ndarray, output_path: s
         
         # 转换为numpy数组
         img_array = np.array(img)
+        height, width, channels = img_array.shape
+        
+        # 确保掩码是二维的且尺寸匹配
+        if len(tamper_mask.shape) != 2:
+            # 如果掩码是1维的，尝试重塑
+            if len(tamper_mask.shape) == 1:
+                # 尝试重塑为(height, width)
+                if tamper_mask.size == height * width:
+                    tamper_mask = tamper_mask.reshape((height, width))
+                else:
+                    raise ValueError(f"掩码尺寸不匹配: 掩码大小={tamper_mask.size}, 图片大小={height*width}")
+            else:
+                raise ValueError(f"掩码维度不正确: {tamper_mask.shape}, 期望2维")
+        
+        # 确保掩码尺寸与图片匹配
+        if tamper_mask.shape != (height, width):
+            # 如果尺寸不匹配，尝试调整
+            from PIL import Image as PILImage
+            mask_pil = PILImage.fromarray((tamper_mask * 255).astype(np.uint8))
+            mask_resized = mask_pil.resize((width, height), PILImage.NEAREST)
+            tamper_mask = np.array(mask_resized) / 255.0
+            tamper_mask = (tamper_mask > 0.5).astype(np.uint8)
         
         # 创建可视化图像（红色标记篡改区域）
         vis_array = img_array.copy()
         
-        # 将篡改区域标记为红色
-        vis_array[tamper_mask == 1, 0] = 255  # R通道
-        vis_array[tamper_mask == 1, 1] = 0     # G通道
-        vis_array[tamper_mask == 1, 2] = 0     # B通道
+        # 将篡改区域标记为红色（使用布尔索引）
+        tamper_indices = tamper_mask == 1
+        vis_array[tamper_indices, 0] = 255  # R通道
+        vis_array[tamper_indices, 1] = 0     # G通道
+        vis_array[tamper_indices, 2] = 0     # B通道
         
         # 转换回PIL Image并保存
         vis_img = Image.fromarray(vis_array)
         vis_img.save(output_path, quality=95)
     except Exception as e:
-        print(f"可视化失败: {e}")
+        import traceback
+        error_msg = f"可视化失败: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        raise Exception(error_msg)

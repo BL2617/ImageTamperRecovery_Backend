@@ -441,3 +441,4 @@ curl -X POST "http://localhost:8000/api/detection/model" \
   -F "confidence_threshold=0.5"
 ```
 
+

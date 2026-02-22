@@ -274,10 +274,20 @@ def perform_model_detection(
     if tamper_mask is not None:
         vis_filename = f"model_vis_{uuid.uuid4()}.jpg"
         vis_path_full = os.path.join(UPLOAD_DIR, vis_filename)
-        # 使用类似block_comparison的可视化方法
-        from app.services.block_comparison import visualize_block_comparison
-        visualize_block_comparison(image_path, tamper_mask, vis_path_full)
-        vis_path = vis_filename  # 只保存文件名
+        # 使用模型检测的可视化方法
+        from app.services.model_detection import visualize_tamper_mask
+        try:
+            visualize_tamper_mask(image_path, tamper_mask, vis_path_full)
+            vis_path = vis_filename  # 只保存文件名
+        except Exception as e:
+            print(f"可视化生成失败: {str(e)}")
+            # 如果可视化失败，尝试使用 block_comparison 的方法
+            try:
+                from app.services.block_comparison import visualize_block_comparison
+                visualize_block_comparison(image_path, tamper_mask, vis_path_full)
+                vis_path = vis_filename
+            except:
+                pass
     elif is_tampered and tampered_regions:
         # 如果有篡改区域但没有掩码，生成一个简单的可视化
         from PIL import Image as PILImage

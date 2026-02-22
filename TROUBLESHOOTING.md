@@ -73,3 +73,4 @@ python migrate_add_detection_tables.py
 ✅ `created_at` 字段序列化问题 - 已修复，现在会自动转换为字符串
 ✅ 错误日志 - 已添加详细的错误堆栈输出
 
+
