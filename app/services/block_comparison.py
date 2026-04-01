@@ -24,9 +24,7 @@ class BlockComparisonResult:
 def compare_images_by_blocks(
     original_path: str,
     detected_path: str,
-    block_size: int = 64,
-    threshold: float = 0.1,
-    save_original_blocks: bool = True
+    block_size: int = 64
 ) -> Tuple[BlockComparisonResult, Optional[np.ndarray]]:
     """
     分块比对两张图片
@@ -35,8 +33,6 @@ def compare_images_by_blocks(
         original_path: 原图路径
         detected_path: 待检测图片路径
         block_size: 块大小（默认64x64）
-        threshold: 差异阈值（0-1），超过此阈值认为块被篡改
-        save_original_blocks: 是否保存原始块数据（用于恢复）
     
     Returns:
         (比对结果, 篡改掩码)
@@ -56,11 +52,18 @@ def compare_images_by_blocks(
         original_array = np.array(original_img)
         detected_array = np.array(detected_img)
         
-        # 确保两张图片尺寸相同
+        # 检查两张图片尺寸是否相同
         if original_array.shape != detected_array.shape:
-            # 调整待检测图片尺寸
-            detected_img = detected_img.resize(original_img.size, PILImage.Resampling.LANCZOS)
-            detected_array = np.array(detected_img)
+            # 尺寸不同，直接判断为篡改
+            result = BlockComparisonResult()
+            result.is_tampered = True
+            result.tamper_ratio = 1.0  # 100%篡改
+            result.tampered_blocks.append({
+                'reason': '尺寸不匹配',
+                'original_size': original_array.shape,
+                'detected_size': detected_array.shape
+            })
+            return result, None
         
         height, width = original_array.shape[:2]
         
@@ -80,12 +83,8 @@ def compare_images_by_blocks(
                 original_block = original_array[y:y+block_height, x:x+block_width]
                 detected_block = detected_array[y:y+block_height, x:x+block_width]
                 
-                # 计算块差异（使用MSE）
-                mse = np.mean((original_block.astype(float) - detected_block.astype(float)) ** 2)
-                # 归一化到0-1范围（假设最大差异为255^2）
-                normalized_diff = mse / (255.0 ** 2)
-                
-                is_tampered = normalized_diff > threshold
+                # 检查是否有任何像素不一致
+                has_diff = not np.array_equal(original_block, detected_block)
                 
                 block_info = {
                     'block_index': block_index,
@@ -93,25 +92,17 @@ def compare_images_by_blocks(
                     'y': y,
                     'width': block_width,
                     'height': block_height,
-                    'is_tampered': is_tampered,
-                    'difference_ratio': float(normalized_diff)
+                    'is_tampered': has_diff
                 }
                 
                 result.blocks.append(block_info)
                 
-                if is_tampered:
+                if has_diff:
                     result.tampered_blocks.append(block_info)
                     # 在掩码中标记被篡改的区域
                     tamper_mask[y:y+block_height, x:x+block_width] = 1
                     
-                    # 如果需要保存原始块数据（用于恢复）
-                    if save_original_blocks:
-                        # 将原始块转换为base64
-                        block_img = PILImage.fromarray(original_block)
-                        buffer = BytesIO()
-                        block_img.save(buffer, format='PNG')
-                        block_data = base64.b64encode(buffer.getvalue()).decode()
-                        block_info['original_block_data'] = block_data
+
                 
                 block_index += 1
         
@@ -119,7 +110,7 @@ def compare_images_by_blocks(
         total_blocks = len(result.blocks)
         tampered_count = len(result.tampered_blocks)
         result.tamper_ratio = tampered_count / total_blocks if total_blocks > 0 else 0.0
-        result.is_tampered = result.tamper_ratio > 0.01  # 如果超过1%的块被篡改，认为图片被篡改
+        result.is_tampered = tampered_count > 0  # 只要有一个块被篡改，就认为图片被篡改
         
         return result, tamper_mask
     except Exception as e:

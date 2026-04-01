@@ -21,7 +21,6 @@ from app.utils.auth import get_current_user
 from app.services.image_service import create_image_with_encryption
 from app.api.auth_api import router as auth_router
 from app.api.detection_api import router as detection_router
-from app.api.recovery_api import router as recovery_router
 
 # 确保目录存在
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -33,6 +32,21 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时初始化数据库
     init_db()
+    
+    # 预加载 PSCC-Net 模型（在后台线程中，避免阻塞启动）
+    import threading
+    from app.services.model_detection import preload_model
+    
+    def preload_in_background():
+        try:
+            preload_model()
+        except Exception as e:
+            print(f"[启动] 模型预加载失败（将在首次请求时加载）: {str(e)}")
+    
+    # 在后台线程中预加载模型
+    preload_thread = threading.Thread(target=preload_in_background, daemon=True)
+    preload_thread.start()
+    
     yield
     # 关闭时清理资源（如果需要）
 
@@ -56,7 +70,6 @@ app.add_middleware(
 # 注册路由
 app.include_router(auth_router)
 app.include_router(detection_router)
-app.include_router(recovery_router)
 
 
 def generate_thumbnail(image_path: str, thumbnail_path: str, max_size: int = 300):

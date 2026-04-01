@@ -5,7 +5,7 @@ from typing import Tuple, Optional
 import uuid
 import json
 from sqlalchemy.orm import Session
-from app.models.models import DetectionResult, TamperedBlock
+from app.models.models import DetectionResult
 from app.services.lsb_detection import detect_lsb_watermark
 from app.services.block_comparison import compare_images_by_blocks, visualize_block_comparison, BlockComparisonResult
 from app.services.model_detection import detect_with_model
@@ -68,35 +68,7 @@ def save_detection_result(
     return result
 
 
-def save_tampered_blocks(
-    db: Session,
-    detection_result_id: str,
-    blocks: list
-):
-    """
-    保存被篡改的块信息到数据库
-    
-    Args:
-        db: 数据库会话
-        detection_result_id: 检测结果ID
-        blocks: 块信息列表（包含original_block_data）
-    """
-    for block in blocks:
-        if block.get('is_tampered') and block.get('original_block_data'):
-            block_id = str(uuid.uuid4())
-            tampered_block = TamperedBlock(
-                id=block_id,
-                detection_result_id=detection_result_id,
-                block_index=block['block_index'],
-                x=block['x'],
-                y=block['y'],
-                width=block['width'],
-                height=block['height'],
-                original_block_data=block['original_block_data']
-            )
-            db.add(tampered_block)
-    
-    db.commit()
+
 
 
 def perform_lsb_detection(
@@ -193,9 +165,7 @@ def perform_block_comparison(
     comparison_result, tamper_mask = compare_images_by_blocks(
         original_image_path,
         detected_image_path,
-        block_size=block_size,
-        threshold=threshold,
-        save_original_blocks=True
+        block_size=block_size
     )
     
     # 生成可视化图片
@@ -236,8 +206,7 @@ def perform_block_comparison(
         detection_params=detection_params
     )
     
-    # 保存被篡改的块信息
-    save_tampered_blocks(db, result.id, comparison_result.blocks)
+
     
     return result, comparison_result
 
@@ -247,7 +216,8 @@ def perform_model_detection(
     user_id: str,
     image_path: str,
     detected_image_id: Optional[str] = None,
-    confidence_threshold: float = 0.5
+    confidence_threshold: float = 0.5,
+    visualization_threshold: float = 0.3
 ) -> DetectionResult:
     """
     执行模型检测（方式3）
@@ -258,6 +228,7 @@ def perform_model_detection(
         image_path: 待检测图片路径
         detected_image_id: 待检测图片ID（如果有）
         confidence_threshold: 置信度阈值
+        visualization_threshold: 可视化阈值（默认0.3），大于此值的区域会被标记为红色
     
     Returns:
         检测结果对象
@@ -265,8 +236,7 @@ def perform_model_detection(
     # 执行模型检测
     is_tampered, tamper_ratio, tampered_regions, tamper_mask = detect_with_model(
         image_path,
-        confidence_threshold=confidence_threshold,
-        save_visualization=True
+        confidence_threshold=confidence_threshold
     )
     
     # 生成可视化图片（如果有篡改区域）
@@ -277,42 +247,122 @@ def perform_model_detection(
         # 使用模型检测的可视化方法
         from app.services.model_detection import visualize_tamper_mask
         try:
-            visualize_tamper_mask(image_path, tamper_mask, vis_path_full)
+            visualize_tamper_mask(image_path, tamper_mask, vis_path_full, threshold=visualization_threshold)
             vis_path = vis_filename  # 只保存文件名
+            print(f"可视化图片生成成功: {vis_filename}")
         except Exception as e:
-            print(f"可视化生成失败: {str(e)}")
+            print(f"可视化失败: {str(e)}")
             # 如果可视化失败，尝试使用 block_comparison 的方法
             try:
                 from app.services.block_comparison import visualize_block_comparison
                 visualize_block_comparison(image_path, tamper_mask, vis_path_full)
                 vis_path = vis_filename
-            except:
-                pass
+                print(f"使用 block_comparison 方法生成可视化成功: {vis_filename}")
+            except Exception as e2:
+                print(f"block_comparison 方法也失败: {str(e2)}")
+                # 如果两种方法都失败，尝试使用简单的区域标记方法
+                if is_tampered and tampered_regions:
+                    try:
+                        from PIL import Image as PILImage
+                        import numpy as np
+                        img = PILImage.open(image_path)
+                        if img.mode != 'RGB':
+                            img = img.convert('RGB')
+                        img_array = np.array(img)
+                        
+                        # 在篡改区域上标记
+                        for region in tampered_regions:
+                            x = region.get('x', 0)
+                            y = region.get('y', 0)
+                            w = region.get('width', 0)
+                            h = region.get('height', 0)
+                            if x + w <= img_array.shape[1] and y + h <= img_array.shape[0]:
+                                # 绘制红色矩形边框
+                                img_array[y:y+2, x:x+w, 0] = 255
+                                img_array[y:y+2, x:x+w, 1] = 0
+                                img_array[y:y+2, x:x+w, 2] = 0
+                                img_array[y+h-2:y+h, x:x+w, 0] = 255
+                                img_array[y+h-2:y+h, x:x+w, 1] = 0
+                                img_array[y+h-2:y+h, x:x+w, 2] = 0
+                                img_array[y:y+h, x:x+2, 0] = 255
+                                img_array[y:y+h, x:x+2, 1] = 0
+                                img_array[y:y+h, x:x+2, 2] = 0
+                                img_array[y:y+h, x+w-2:x+w, 0] = 255
+                                img_array[y:y+h, x+w-2:x+w, 1] = 0
+                                img_array[y:y+h, x+w-2:x+w, 2] = 0
+                        
+                        vis_img = PILImage.fromarray(img_array)
+                        vis_img.save(vis_path_full, quality=95)
+                        vis_path = vis_filename
+                        print(f"使用区域标记方法生成可视化成功: {vis_filename}")
+                    except Exception as e3:
+                        print(f"区域标记方法也失败: {str(e3)}")
     elif is_tampered and tampered_regions:
         # 如果有篡改区域但没有掩码，生成一个简单的可视化
-        from PIL import Image as PILImage
-        import numpy as np
-        img = PILImage.open(image_path)
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        img_array = np.array(img)
-        
-        # 在篡改区域上标记
-        for region in tampered_regions:
-            x = region.get('x', 0)
-            y = region.get('y', 0)
-            w = region.get('width', 0)
-            h = region.get('height', 0)
-            if x + w <= img_array.shape[1] and y + h <= img_array.shape[0]:
-                img_array[y:y+h, x:x+w, 0] = 255  # 红色标记
-                img_array[y:y+h, x:x+w, 1] = 0
-                img_array[y:y+h, x:x+w, 2] = 0
-        
         vis_filename = f"model_vis_{uuid.uuid4()}.jpg"
         vis_path_full = os.path.join(UPLOAD_DIR, vis_filename)
-        vis_img = PILImage.fromarray(img_array)
-        vis_img.save(vis_path_full, quality=95)
-        vis_path = vis_filename
+        try:
+            from PIL import Image as PILImage
+            import numpy as np
+            img = PILImage.open(image_path)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            img_array = np.array(img)
+            
+            # 在篡改区域上标记
+            for region in tampered_regions:
+                x = region.get('x', 0)
+                y = region.get('y', 0)
+                w = region.get('width', 0)
+                h = region.get('height', 0)
+                if x + w <= img_array.shape[1] and y + h <= img_array.shape[0]:
+                    # 绘制红色矩形边框
+                    img_array[y:y+2, x:x+w, 0] = 255
+                    img_array[y:y+2, x:x+w, 1] = 0
+                    img_array[y:y+2, x:x+w, 2] = 0
+                    img_array[y+h-2:y+h, x:x+w, 0] = 255
+                    img_array[y+h-2:y+h, x:x+w, 1] = 0
+                    img_array[y+h-2:y+h, x:x+w, 2] = 0
+                    img_array[y:y+h, x:x+2, 0] = 255
+                    img_array[y:y+h, x:x+2, 1] = 0
+                    img_array[y:y+h, x:x+2, 2] = 0
+                    img_array[y:y+h, x+w-2:x+w, 0] = 255
+                    img_array[y:y+h, x+w-2:x+w, 1] = 0
+                    img_array[y:y+h, x+w-2:x+w, 2] = 0
+            
+            vis_img = PILImage.fromarray(img_array)
+            vis_img.save(vis_path_full, quality=95)
+            vis_path = vis_filename
+            print(f"使用区域标记方法生成可视化成功: {vis_filename}")
+        except Exception as e:
+            print(f"区域标记方法失败: {str(e)}")
+    # 即使没有篡改区域，如果检测到篡改，也生成一个基本的可视化
+    elif is_tampered:
+        vis_filename = f"model_vis_{uuid.uuid4()}.jpg"
+        vis_path_full = os.path.join(UPLOAD_DIR, vis_filename)
+        try:
+            from PIL import Image as PILImage
+            import numpy as np
+            img = PILImage.open(image_path)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            img_array = np.array(img)
+            
+            # 在图片上添加 "检测到篡改" 的文字
+            from PIL import ImageDraw, ImageFont
+            draw = ImageDraw.Draw(img)
+            try:
+                font = ImageFont.truetype("arial.ttf", 36)
+            except:
+                font = ImageFont.load_default()
+            draw.text((50, 50), "检测到篡改", fill=(255, 0, 0), font=font)
+            
+            vis_img = PILImage.fromarray(img_array)
+            vis_img.save(vis_path_full, quality=95)
+            vis_path = vis_filename
+            print(f"使用文字标记方法生成可视化成功: {vis_filename}")
+        except Exception as e:
+            print(f"文字标记方法失败: {str(e)}")
     
     # 保存检测参数
     detection_params = {

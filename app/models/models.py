@@ -248,22 +248,7 @@ class DetectionResult(Base):
     detected_image = relationship("Image", foreign_keys=[detected_image_id])
 
 
-class TamperedBlock(Base):
-    """被篡改的块数据库模型（用于方式2的恢复功能）"""
-    __tablename__ = "tampered_blocks"
-    
-    id = Column(String(64), primary_key=True, index=True)
-    detection_result_id = Column(String(64), ForeignKey("detection_results.id"), nullable=False, index=True)
-    block_index = Column(Integer, nullable=False)  # 块索引
-    x = Column(Integer, nullable=False)  # 块左上角x坐标
-    y = Column(Integer, nullable=False)  # 块左上角y坐标
-    width = Column(Integer, nullable=False)  # 块宽度
-    height = Column(Integer, nullable=False)  # 块高度
-    original_block_data = Column(Text, nullable=True)  # 原始块数据（base64编码的PNG）
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # 关系
-    detection_result = relationship("DetectionResult")
+
 
 
 # 检测相关API响应模型
@@ -317,25 +302,5 @@ class BlockComparisonResponse(BaseModel):
     blocks: List[BlockComparisonData]
 
 
-class RestoreBlockData(BaseModel):
-    """恢复块数据模型"""
-    block_index: int
-    x: int
-    y: int
-    width: int
-    height: int
-    block_data: str  # base64编码的PNG数据
 
-
-class RestoreBlocksRequest(BaseModel):
-    """恢复块请求模型"""
-    detection_result_id: str
-    block_indices: List[int]  # 要恢复的块索引列表
-
-
-class RestoreBlocksResponse(BaseModel):
-    """恢复块响应模型"""
-    code: int
-    message: str
-    data: List[RestoreBlockData]
 

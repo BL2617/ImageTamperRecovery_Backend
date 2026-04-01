@@ -8,17 +8,16 @@ from PIL import Image as PILImage
 import os
 import uuid
 import sys
+import threading
 
-from app.utils.config import UPLOAD_DIR, PSCC_NET_MODEL_PATH, PSCC_NET_USE_GPU
+from app.utils.config import UPLOAD_DIR, PSCC_NET_CHECKPOINT_DIR, PSCC_NET_USE_GPU
 
-# 添加 PSCC-Net 到路径
+# 添加后端目录到路径，以便导入 pscc_net 包
 backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-pscc_net_dir = os.path.join(backend_dir, "PSCC-Net")
-if os.path.exists(pscc_net_dir):
+if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 # 尝试导入 PSCC-Net
-# 注意：由于模块名包含连字符，需要使用 importlib 或直接导入
 PSCC_NET_AVAILABLE = False
 get_model_instance = None
 PSCCNetInference = None
@@ -36,21 +35,16 @@ try:
         print(f"错误详情: {str(torch_error)}")
     
     if TORCH_AVAILABLE:
-        # 方法1：尝试直接导入（如果 PSCC-Net 被正确安装为包）
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "pscc_net_model", 
-            os.path.join(pscc_net_dir, "model.py")
-        )
-        if spec and spec.loader:
-            pscc_net_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(pscc_net_module)
-            get_model_instance = pscc_net_module.get_model_instance
-            PSCCNetInference = pscc_net_module.PSCCNetInference
+        # 尝试导入 pscc_net 包
+        try:
+            import pscc_net
+            get_model_instance = pscc_net.get_model_instance
+            PSCCNetInference = pscc_net.PSCCNetInference
             PSCC_NET_AVAILABLE = True
             print("成功加载 PSCC-Net 模型模块")
-        else:
-            raise ImportError("无法加载 PSCC-Net 模块")
+        except ImportError as import_error:
+            print(f"警告: 无法导入 pscc_net 包: {str(import_error)}")
+            PSCC_NET_AVAILABLE = False
     else:
         # PyTorch 不可用，跳过 PSCC-Net 加载
         PSCC_NET_AVAILABLE = False
@@ -67,11 +61,37 @@ except Exception as e:
     get_model_instance = None
     PSCCNetInference = None
 
+# 全局模型实例缓存（单例模式）
+_model_instance = None
+_model_lock = threading.Lock()
+
+
+def preload_model():
+    """
+    预加载模型（可选，在服务启动时调用以提前加载模型）
+    这样可以避免第一个请求时的延迟
+    """
+    global _model_instance
+    if PSCC_NET_AVAILABLE and get_model_instance is not None:
+        if _model_instance is None:
+            with _model_lock:
+                if _model_instance is None:
+                    print("[模型检测] 预加载 PSCC-Net 模型...")
+                    try:
+                        _model_instance = get_model_instance(
+                            checkpoint_dir=PSCC_NET_CHECKPOINT_DIR,
+                            use_gpu=PSCC_NET_USE_GPU
+                        )
+                        _model_instance.load_models()
+                        print("[模型检测] PSCC-Net 模型预加载完成")
+                    except Exception as e:
+                        print(f"[模型检测] 模型预加载失败: {str(e)}")
+                        _model_instance = None
+
 
 def detect_with_model(
     image_path: str,
-    confidence_threshold: float = 0.5,
-    save_visualization: bool = True
+    confidence_threshold: float = 0.5
 ) -> Tuple[bool, float, list, Optional[np.ndarray]]:
     """
     使用 PSCC-Net 模型检测图片是否被篡改
@@ -79,7 +99,6 @@ def detect_with_model(
     Args:
         image_path: 待检测图片路径
         confidence_threshold: 置信度阈值（默认0.5）
-        save_visualization: 是否保存可视化图片
     
     Returns:
         (是否被篡改, 篡改比例, 篡改区域列表, 篡改掩码)
@@ -95,28 +114,54 @@ def detect_with_model(
         # 如果 PSCC-Net 可用，使用它进行检测
         if PSCC_NET_AVAILABLE and get_model_instance is not None:
             try:
-                # 获取模型实例
-                model = get_model_instance(model_path=PSCC_NET_MODEL_PATH)
+                # 使用全局模型实例（单例模式，避免重复加载）
+                global _model_instance
                 
-                # 进行预测（使用原始尺寸）
-                is_tampered, confidence, tamper_mask = model.predict_with_original_size(
+                if _model_instance is None:
+                    # 使用线程锁确保只加载一次
+                    with _model_lock:
+                        # 双重检查，避免多线程重复加载
+                        if _model_instance is None:
+                            print("[模型检测] 首次加载 PSCC-Net 模型...")
+                            _model_instance = get_model_instance(
+                                checkpoint_dir=PSCC_NET_CHECKPOINT_DIR,
+                                use_gpu=PSCC_NET_USE_GPU
+                            )
+                            # 加载模型
+                            _model_instance.load_models()
+                            print("[模型检测] PSCC-Net 模型加载完成，后续请求将复用此实例")
+                
+                model = _model_instance
+                
+                # 进行预测
+                # 注意：为了避免极大图片在 CPU 上推理时间过长，这里限制最大边长（例如 1024）
+                # 如果需要更高精度，可以适当调大 max_size，但会增加耗时
+                print("[模型检测] 开始模型推理...")
+                is_tampered, confidence, tamper_mask = model.predict(
                     image_path,
-                    confidence_threshold=confidence_threshold
+                    confidence_threshold=confidence_threshold,
+                    max_size=1024
                 )
+                print("[模型检测] 模型推理完成")
                 
                 # 计算篡改比例
                 if tamper_mask is not None and tamper_mask.size > 0:
                     # 确保掩码是二维的
                     if len(tamper_mask.shape) == 2:
-                        tamper_ratio = float(np.sum(tamper_mask > 0.5)) / (width * height)
+                        # 使用较低的阈值来计算篡改比例，捕获更多潜在篡改区域
+                        tamper_ratio = float(np.sum(tamper_mask > 0.3)) / (width * height)
                     else:
                         tamper_ratio = 0.0
                 else:
                     tamper_ratio = 0.0
                 
+                # 改进分类逻辑：结合篡改比例和分类置信度
+                # 如果篡改比例大于 0.5% 或者分类置信度大于 0.4，就认为图片被篡改
+                improved_is_tampered = is_tampered or (tamper_ratio > 0.005) or (float(confidence) > 0.4)
+                
                 # 生成篡改区域列表
                 tampered_regions = []
-                if is_tampered and tamper_mask is not None and tamper_mask.size > 0:
+                if (improved_is_tampered or tamper_ratio > 0.001) and tamper_mask is not None and tamper_mask.size > 0:
                     # 确保掩码是二维的
                     if len(tamper_mask.shape) != 2:
                         # 如果是3D，取第一个通道或转换为2D
@@ -130,8 +175,8 @@ def detect_with_model(
                         # 找到所有篡改区域（连通组件）
                         try:
                             from scipy import ndimage
-                            # 二值化掩码
-                            binary_mask = (tamper_mask > 0.5).astype(np.uint8)
+                            # 使用较低的阈值来二值化掩码，捕获更多潜在篡改区域
+                            binary_mask = (tamper_mask > 0.3).astype(np.uint8)
                             
                             # 找到连通组件
                             labeled_mask, num_features = ndimage.label(binary_mask)
@@ -147,29 +192,38 @@ def detect_with_model(
                                     region_mask = (labeled_mask == i)
                                     region_confidence = float(np.mean(tamper_mask[region_mask])) if np.any(region_mask) else float(confidence)
                                     
+                                    # 只添加面积大于一定阈值的区域，过滤噪声
+                                    area = (x_max - x_min + 1) * (y_max - y_min + 1)
+                                    if area > 100:  # 过滤小于 10x10 像素的区域
+                                        region = {
+                                            'x': x_min,
+                                            'y': y_min,
+                                            'width': x_max - x_min + 1,
+                                            'height': y_max - y_min + 1,
+                                            'confidence': region_confidence
+                                        }
+                                        tampered_regions.append(region)
+                        except ImportError:
+                            # 如果没有 scipy，使用简单的边界框
+                            if np.any(tamper_mask > 0.3):
+                                coords = np.where(tamper_mask > 0.3)
+                                y_min, y_max = int(np.min(coords[0])), int(np.max(coords[0]))
+                                x_min, x_max = int(np.min(coords[1])), int(np.max(coords[1]))
+                                
+                                # 只添加面积大于一定阈值的区域，过滤噪声
+                                area = (x_max - x_min + 1) * (y_max - y_min + 1)
+                                if area > 100:  # 过滤小于 10x10 像素的区域
                                     region = {
                                         'x': x_min,
                                         'y': y_min,
                                         'width': x_max - x_min + 1,
                                         'height': y_max - y_min + 1,
-                                        'confidence': region_confidence
+                                        'confidence': float(confidence)
                                     }
                                     tampered_regions.append(region)
-                        except ImportError:
-                            # 如果没有 scipy，使用简单的边界框
-                            if np.any(tamper_mask > 0.5):
-                                coords = np.where(tamper_mask > 0.5)
-                                y_min, y_max = int(np.min(coords[0])), int(np.max(coords[0]))
-                                x_min, x_max = int(np.min(coords[1])), int(np.max(coords[1]))
-                                
-                                region = {
-                                    'x': x_min,
-                                    'y': y_min,
-                                    'width': x_max - x_min + 1,
-                                    'height': y_max - y_min + 1,
-                                    'confidence': float(confidence)
-                                }
-                                tampered_regions.append(region)
+                
+                # 使用改进后的分类结果
+                is_tampered = improved_is_tampered
                 
                 return is_tampered, tamper_ratio, tampered_regions, tamper_mask
                 
@@ -212,7 +266,8 @@ def visualize_tamper_mask(
     image_path: str,
     tamper_mask: np.ndarray,
     output_path: str,
-    alpha: float = 0.5
+    alpha: float = 0.5,
+    threshold: float = 0.3
 ):
     """
     可视化篡改掩码
@@ -222,6 +277,7 @@ def visualize_tamper_mask(
         tamper_mask: 篡改掩码（0-1之间的浮点数数组）
         output_path: 输出图片路径
         alpha: 掩码透明度（0-1）
+        threshold: 掩码阈值（0-1），大于此值的区域会被标记为红色
     """
     try:
         # 打开原始图片
@@ -236,6 +292,9 @@ def visualize_tamper_mask(
             mask_pil = PILImage.fromarray((tamper_mask * 255).astype(np.uint8))
             mask_resized = mask_pil.resize((img_array.shape[1], img_array.shape[0]), PILImage.BILINEAR)
             tamper_mask = np.array(mask_resized) / 255.0
+        
+        # 应用阈值处理，确保只有值大于阈值的区域才会被标记
+        tamper_mask = (tamper_mask > threshold).astype(np.float32)
         
         # 创建红色掩码
         red_mask = np.zeros_like(img_array)

@@ -240,6 +240,7 @@ async def detect_model(
     request: Request,
     file: UploadFile = File(..., description="待检测的图片文件"),
     confidence_threshold: float = Form(0.5, description="置信度阈值（默认0.5）"),
+    visualization_threshold: float = Form(0.33, description="可视化阈值（默认0.3），大于此值的区域会被标记为红色"),
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -252,6 +253,7 @@ async def detect_model(
     
     - **file**: 待检测的图片文件
     - **confidence_threshold**: 置信度阈值（默认0.5）
+    - **visualization_threshold**: 可视化阈值（默认0.3），大于此值的区域会被标记为红色
     """
     temp_path = None
     try:
@@ -268,7 +270,8 @@ async def detect_model(
             db=db,
             user_id=current_user.id,
             image_path=temp_path,
-            confidence_threshold=confidence_threshold
+            confidence_threshold=confidence_threshold,
+            visualization_threshold=visualization_threshold
         )
         
         # 构建响应数据
@@ -351,4 +354,68 @@ async def get_visualization(
         media_type="image/jpeg",
         filename=f"visualization_{detection_result_id}.jpg"
     )
+
+
+@router.get("/recovery/{detection_result_id}")
+async def get_recovery_data(
+    detection_result_id: str = Path(..., description="检测结果ID"),
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    获取恢复数据（被篡改块的原始数据）
+    
+    - **detection_result_id**: 检测结果ID
+    """
+    from app.models.models import DetectionResult, TamperedBlock
+    
+    # 验证检测结果是否存在且属于当前用户
+    result = db.query(DetectionResult).filter(
+        DetectionResult.id == detection_result_id,
+        DetectionResult.user_id == current_user.id
+    ).first()
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="检测结果不存在或无权限访问")
+    
+    if result.detection_type != "compare":
+        raise HTTPException(status_code=400, detail="仅分块比对检测结果支持恢复功能")
+    
+    # 获取被篡改的块
+    tampered_blocks = db.query(TamperedBlock).filter(
+        TamperedBlock.detection_result_id == detection_result_id
+    ).all()
+    
+    if not tampered_blocks:
+        return {
+            "code": 200,
+            "message": "无需恢复，未检测到被篡改的块",
+            "data": {
+                "tampered_blocks": [],
+                "total_blocks": 0
+            }
+        }
+    
+    # 构建恢复数据
+    recovery_blocks = []
+    for block in tampered_blocks:
+        # 解析块数据
+        block_data = {
+            "block_index": block.block_index,
+            "x": block.x,
+            "y": block.y,
+            "width": block.width,
+            "height": block.height,
+            "original_block_data": block.original_block_data
+        }
+        recovery_blocks.append(block_data)
+    
+    return {
+        "code": 200,
+        "message": "获取恢复数据成功",
+        "data": {
+            "tampered_blocks": recovery_blocks,
+            "total_blocks": len(recovery_blocks)
+        }
+    }
 

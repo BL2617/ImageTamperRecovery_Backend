@@ -16,17 +16,21 @@ def test_model_loading():
     
     try:
         from app.services.model_detection import PSCC_NET_AVAILABLE, get_model_instance
-        from app.utils.config import PSCC_NET_MODEL_PATH
+        from app.utils.config import PSCC_NET_CHECKPOINT_DIR
         
         print(f"PSCC-Net 可用: {PSCC_NET_AVAILABLE}")
-        print(f"模型路径: {PSCC_NET_MODEL_PATH}")
-        print(f"模型文件存在: {os.path.exists(PSCC_NET_MODEL_PATH)}")
+        print(f"权重目录: {PSCC_NET_CHECKPOINT_DIR}")
+        print(f"权重目录存在: {os.path.exists(PSCC_NET_CHECKPOINT_DIR)}")
         
         if PSCC_NET_AVAILABLE and get_model_instance is not None:
             print("\n尝试加载模型实例...")
-            model = get_model_instance(model_path=PSCC_NET_MODEL_PATH)
+            model = get_model_instance(checkpoint_dir=PSCC_NET_CHECKPOINT_DIR)
             print(f"模型设备: {model.device}")
             print(f"模型已加载: {model.model is not None}")
+            if model.model is None:
+                print("正在加载模型权重...")
+                model.load_models()
+                print(f"模型已加载: {model.model is not None}")
             print("[OK] 模型加载成功！")
         else:
             print("[WARNING] PSCC-Net 模块不可用，将使用占位实现")

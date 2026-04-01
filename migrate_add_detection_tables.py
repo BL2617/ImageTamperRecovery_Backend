@@ -2,7 +2,7 @@
 数据库迁移脚本：添加检测结果表和分块差异表
 """
 from sqlalchemy import create_engine, inspect
-from app.models.models import Base, DetectionResult, TamperedBlock
+from app.models.models import Base, DetectionResult
 import os
 
 # 数据库文件路径
@@ -31,12 +31,7 @@ def migrate_database():
     else:
         print("[OK] detection_results 表已存在")
     
-    if "tampered_blocks" not in existing_tables:
-        print("创建 tampered_blocks 表...")
-        TamperedBlock.__table__.create(bind=engine, checkfirst=True)
-        print("[OK] tampered_blocks 表创建成功")
-    else:
-        print("[OK] tampered_blocks 表已存在")
+
     
     print("\n数据库迁移完成！")
 
