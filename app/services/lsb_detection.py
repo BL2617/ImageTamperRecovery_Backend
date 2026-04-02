@@ -64,3 +64,68 @@ def detect_lsb_watermark(
         print(error_msg)
         raise Exception(f"LSB检测失败: {str(e)}")
 
+
+def add_lsb_watermark(
+    image_path: str,
+    watermark_text: str,
+    save_visualization: bool = True
+) -> Tuple[bool, float, Optional[str], Optional[np.ndarray]]:
+    """
+    添加LSB水印
+    
+    Args:
+        image_path: 待添加水印的图片路径
+        watermark_text: 水印文本
+        save_visualization: 是否保存可视化图片
+    
+    Returns:
+        (是否被篡改, 篡改比例, 可视化图片路径, 篡改掩码)
+    """
+    try:
+        # 导入添加水印的函数
+        from app.utils.watermark import add_watermark as add_lsb
+        
+        # 执行添加水印
+        result_path, is_modified = add_lsb(image_path, watermark_text)
+        
+        # 生成篡改掩码（整个图片都被修改）
+        img = PILImage.open(image_path)
+        img_array = np.array(img)
+        tamper_mask = np.ones((img_array.shape[0], img_array.shape[1]), dtype=bool)
+        
+        # 计算篡改比例（100%）
+        tamper_ratio = 1.0
+        
+        visualization_path = None
+        if save_visualization and result_path:
+            try:
+                # 生成可视化图片
+                vis_filename = f"watermark_vis_{uuid.uuid4()}.jpg"
+                visualization_path_full = os.path.join(UPLOAD_DIR, vis_filename)
+                
+                # 确保目录存在
+                os.makedirs(UPLOAD_DIR, exist_ok=True)
+                
+                # 复制结果图片作为可视化
+                import shutil
+                shutil.copy2(result_path, visualization_path_full)
+                
+                # 验证文件是否成功创建
+                if os.path.exists(visualization_path_full):
+                    # 只返回文件名，不返回完整路径
+                    visualization_path = vis_filename
+                else:
+                    print(f"警告: 可视化文件创建失败: {visualization_path_full}")
+            except Exception as vis_error:
+                # 可视化失败不影响检测结果
+                import traceback
+                print(f"可视化生成失败: {str(vis_error)}\n{traceback.format_exc()}")
+                visualization_path = None
+        
+        return is_modified, tamper_ratio, visualization_path, tamper_mask
+    except Exception as e:
+        import traceback
+        error_msg = f"添加水印失败: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        raise Exception(f"添加水印失败: {str(e)}")
+

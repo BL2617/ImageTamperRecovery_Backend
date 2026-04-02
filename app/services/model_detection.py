@@ -300,9 +300,10 @@ def visualize_tamper_mask(
         red_mask = np.zeros_like(img_array)
         red_mask[:, :, 0] = 255  # 红色通道
         
-        # 将掩码应用到图片上
+        # 创建只包含红色标记的热力图，不包含原图
         mask_3d = np.stack([tamper_mask] * 3, axis=2)
-        overlay = img_array * (1 - mask_3d * alpha) + red_mask * (mask_3d * alpha)
+        overlay = np.zeros_like(img_array)  # 全黑背景
+        overlay = overlay * (1 - mask_3d) + red_mask * mask_3d
         overlay = np.clip(overlay, 0, 255).astype(np.uint8)
         
         # 保存可视化图片

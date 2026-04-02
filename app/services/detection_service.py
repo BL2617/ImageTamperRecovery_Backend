@@ -386,3 +386,66 @@ def perform_model_detection(
     
     return result
 
+
+def add_watermark(
+    db: Session,
+    user_id: str,
+    image_path: str,
+    watermark_text: str,
+    detected_image_id: Optional[str] = None
+) -> DetectionResult:
+    """
+    添加水印
+    
+    Args:
+        db: 数据库会话
+        user_id: 用户ID
+        image_path: 待添加水印的图片路径
+        watermark_text: 水印文本
+        detected_image_id: 待检测图片ID（如果有）
+    
+    Returns:
+        检测结果对象
+    """
+    # 执行添加水印
+    from app.services.lsb_detection import add_lsb_watermark
+    is_tampered, tamper_ratio, vis_path, tamper_mask = add_lsb_watermark(
+        image_path, watermark_text, save_visualization=True
+    )
+    
+    # 构建篡改区域（添加水印后，整个图片被视为"篡改"）
+    tampered_regions = None
+    if is_tampered and tamper_mask is not None:
+        from PIL import Image as PILImage
+        img = PILImage.open(image_path)
+        tampered_regions = [{
+            "x": 0,
+            "y": 0,
+            "width": img.width,
+            "height": img.height,
+            "confidence": float(tamper_ratio)
+        }]
+    
+    # 保存检测参数
+    import hashlib
+    watermark_hash = hashlib.sha256(watermark_text.encode()).hexdigest()
+    detection_params = {
+        "watermark_hash": watermark_hash,
+        "method": "lsb_watermark"
+    }
+    
+    # 保存结果
+    result = save_detection_result(
+        db=db,
+        user_id=user_id,
+        detection_type="watermark",
+        is_tampered=is_tampered,
+        tamper_ratio=tamper_ratio,
+        detected_image_id=detected_image_id,
+        tampered_regions=tampered_regions,
+        visualization_path=vis_path,
+        detection_params=detection_params
+    )
+    
+    return result
+

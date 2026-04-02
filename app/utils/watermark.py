@@ -168,7 +168,8 @@ def visualize_tampering(image_path: str, tamper_mask: np.ndarray, output_path: s
             tamper_mask = (tamper_mask > 0.5).astype(np.uint8)
         
         # 创建可视化图像（红色标记篡改区域）
-        vis_array = img_array.copy()
+        # 创建全黑图像，而不是基于原图
+        vis_array = np.zeros_like(img_array)
         
         # 将篡改区域标记为红色（使用布尔索引）
         tamper_indices = tamper_mask == 1
@@ -184,3 +185,34 @@ def visualize_tampering(image_path: str, tamper_mask: np.ndarray, output_path: s
         error_msg = f"可视化失败: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
         raise Exception(error_msg)
+
+
+def add_watermark(image_path: str, watermark_text: str) -> Tuple[str, bool]:
+    """
+    添加LSB水印（使用文本作为水印）
+    
+    Args:
+        image_path: 待添加水印的图片路径
+        watermark_text: 水印文本
+    
+    Returns:
+        (输出图片路径, 是否成功)
+    """
+    try:
+        # 生成输出路径
+        import os
+        import uuid
+        base_name = os.path.basename(image_path)
+        name, ext = os.path.splitext(base_name)
+        output_path = os.path.join(os.path.dirname(image_path), f"{name}_watermarked{ext}")
+        
+        # 使用文本作为密钥生成水印
+        key = watermark_text
+        
+        # 嵌入水印
+        success = embed_watermark(image_path, output_path, key)
+        
+        return output_path, success
+    except Exception as e:
+        print(f"添加水印失败: {e}")
+        return "", False
